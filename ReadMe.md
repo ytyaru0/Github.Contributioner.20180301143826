@@ -39,8 +39,15 @@ $ python Get.py -n -d -u -y
 `-u`|url|アップロードURL
 `-y`|yaml|yamlファイルパス。またはフロースタイル`{d:{k:v}, a:[1,2]}`
 
-* `-y`引数があればそちらを優先する。他は`-d`,`-o`,`-u`の指定があっても無視する。
-+ `-n`引数があれば`-d`,`-y`の設定は無視して`-n`指定されたユーザのみ対象とする
+* 優先
+    * `-y`引数があればそちらを優先する。他は`-d`,`-id`,`-od`,`-u`の指定があっても無視する。
+    * `-n`引数があれば`-d`,`-y`の設定は無視して`-n`指定されたユーザのみ対象とする
+* 必須
+    * 対象ユーザ
+        * `-u`, `-y`, `-d`のいずれかによる指定
+* デフォルト値
+    * DB出力ディレクトリ
+        * カレントディレクトリ
 
 #### 例
 
@@ -101,29 +108,157 @@ $ python Make.py -n -i -o -u -y
 `-u`|url|アップロードURL
 `-y`|yaml|yamlファイルパス。またはフロースタイル`{d:{k:v}, a:[1,2]}`
 
-* `-y`引数があればそちらを優先する。他は`-d`,`-o`,`-u`の指定があっても無視する。
-+ `-n`引数があれば`-d`,`-y`の設定は無視して`-n`指定されたユーザのみ対象とする
+* 優先
+    * `-y`引数があればそちらを優先する。他は`-d`,`-i`,`-o`,`-u`の指定があっても無視する。
+    * `-n`引数があれば`-d`,`-y`の設定は無視して`-n`指定されたユーザのみ対象とする
+* 必須
+    * 入力DBパス
+        * `-i`, `-d`, `-y`のいずれかによる指定
+* デフォルト値
+    * DB出力ディレクトリ
+        * カレントディレクトリ
 
 #### 例
 
+指定ユーザの草SVGを作成する。
+
+```python
+$ python Make.py --user Githubユーザ名
+```
+
+ユーザ指定の略記と複数。
+```python
+$ python Make.py -n user1 -n user2 -n user3
+```
+
+DBの指定。`-i`,`-d`どちらでも可。`Github.Accounts.sqlite3`にある全ユーザを対象とする。
+
+```python
+$ python Make.py -i /tmp/db/
+```
+
+SVGファイル出力先の指定。`-o`,`-s`どちらでも可。
+
+```python
+$ python Make.py -o /tmp/svg/
+```
+
+アップロード先の指定。（`-u`複数指定可能）
+
+```python
+$ python Make.py -u https://github.com/...
+```
+
+yamlファイルパス指定。
+
+```python
+$ python Make.py -y config.yml
+```
+
+フロースタイルyamlデータ指定。
+
+```python
+$ python Make.py -y {Path:/tmp/, Url:https://github.com/...}
+```
 
 ### Backup.py
 
 これは別案件にすべきか。
 
 ```python
-$ python Backup.py -n -i -o -u -y
+$ python Backup.py サブコマンド
 ```
 
-方法|説明
-----|----
-FileSystem|ファイルシステムによる書き込み。
-Github.Repository|Github Repositories APIによる create と`git push`
-Github.Pages|`docs/`にファイル出力した上で`Github.Repository`パターン
-Bitbucket|
-GitLab|
+サブコマンド。バックアップ方法ごとに存在する。
 
-### Get.py
+方法|略記|説明
+----|----|----
+FileSystem|fs|ファイルシステムによる書き込み。
+FileSystem.zip|zip|ファイルシステムによる書き込み。zip圧縮。
+Github.Repository|hub,github|Github Repositories APIによる create と`git push`
+Github.Pages|pages,gitpages|`docs/`にファイル出力した上で`Github.Repository`パターン
+Bitbucket|bb,bitbucket|
+GitLab|gl,lab,gitlab|
+GoogleDrive|google|
+Dropbox|drop|
+
+#### 方法1: FileSystem
+
+CUIでなくPythonインタフェースにすべき。書き出すべきデータがメモリ上にしか存在しないため。
+
+```python
+from abc import ABCMeta, abstractmethod
+class Backupper(meta=ABCMeta):
+    @abstractmethod
+    def Backup(*args, **kwargs): pass
+
+class FileSystem(Backupper):
+    def Backup(*args, **kwargs):
+        if 'files' not in kwargs: raise Exception('引数filesがありません。')
+```
+
+ディレクトリ構成をdict型で持たせる。
+```python
+files = {
+    '/': {
+        'tmp': {
+            'some.txt': some_str,
+            'sub': {}
+        }
+    }
+}
+```
+値がdict型ならディレクトリ、文字列型かバイナリ型ならファイル。
+
+面倒すぎる。pathとデータを渡して、必要なディレクトリは自動生成がいい。ファイルがないディレクトリを作りたければデータを省略する。
+
+
+```python
+from abc import ABCMeta, abstractmethod
+class Backupper(meta=ABCMeta):
+    @abstractmethod
+    def Backup(*args, **kwargs): pass
+class FileSystem(Backupper):
+    def Backup(path, data=None):
+        if isinstance(data, str):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('w', encoding='utf-8') as f: f.write(data)
+        elif isinstance(data, (bytes, bytearray)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('wb') as f: f.write(data)
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+```
+
+引数が不定のインタフェースって……。
+
+#### 方法2: Github.Repository
+
+```python
+$ python Backup.py github パス -u -d -l
+```
+
+引数|名前|説明
+----|----|----
+[0]|ローカルリポジトリパス（`.git`を配置したいディレクトリ。リモートリポジトリ名にもなる）
+`-u`|アップロードしたいGithubユーザ
+`-d`|リポジトリの説明文
+`-l`|リポジトリのURL
+
+#### 方法3: Github.Pages
+
+```python
+$ python Backup.py pages パス -u -d -l
+```
+
+引数|名前|説明
+----|----|----
+[0]|ローカルリポジトリパス（`.git`を配置したいディレクトリ。リモートリポジトリ名にもなる）
+`-u`|アップロードしたいGithubユーザ
+`-d`|リポジトリの説明文
+`-l`|リポジトリのURL
+
+なお、`docs/`ディレクトリ必須。その配下に1つ以上のファイル必須。
 
 # 設定
 
